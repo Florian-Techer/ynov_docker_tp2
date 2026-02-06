@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 
-// Volontairement piégeux  (à corriger)
 // Objectif final : passer par Nginx (même origine) -> /api/...
-const API_BASE = "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 export default function App() {
   const [health, setHealth] = useState(null);

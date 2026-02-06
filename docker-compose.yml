@@ -5,44 +5,75 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
-      # Volontairement en clair au départ (à migrer vers secrets)
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     volumes:
       - pg_data:/var/lib/postgresql/data
     networks:
       - backend
-    # Pas de healthcheck au départ (à ajouter)
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   backend:
     build:
       context: ./backend
+      target: dev # runner
     container_name: m2_backend
     environment:
       PORT: ${API_PORT}
       NODE_ENV: ${NODE_ENV}
-      # Volontairement faux : ne doit pas être localhost en Docker
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "3000:3000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - backend
-    # Pas de healthcheck au départ (à ajouter)
+      - frontend
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - backend_npm_cache:/home/node/.npm
 
   frontend:
     build:
       context: ./frontend
+      target: dev # runner
     container_name: m2_frontend
     environment:
       - VITE_API_BASE_URL=${VITE_API_BASE_URL}
+      - CHOKIDAR_USEPOLLING=true
     ports:
       - "5173:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - frontend
       - backend
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_npm_cache:/home/node/.npm
 
   nginx:
     image: nginx:1.27-alpine
@@ -52,8 +83,10 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      - frontend
-      - backend
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_healthy
     networks:
       - frontend
       - backend
@@ -66,3 +99,11 @@ networks:
 
 volumes:
   pg_data:
+  backend_node_modules:
+  backend_npm_cache:
+  frontend_node_modules:
+  frontend_npm_cache:
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
