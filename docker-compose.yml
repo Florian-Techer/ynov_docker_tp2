@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: m2_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      # Volontairement en clair au départ (à migrer vers secrets)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    # Pas de healthcheck au départ (à ajouter)
+
+  backend:
+    build:
+      context: ./backend
+    container_name: m2_backend
+    environment:
+      PORT: ${API_PORT}
+      NODE_ENV: ${NODE_ENV}
+      # Volontairement faux : ne doit pas être localhost en Docker
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${POSTGRES_DB}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    networks:
+      - backend
+    # Pas de healthcheck au départ (à ajouter)
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: m2_frontend
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - frontend
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: m2_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - frontend
+      - backend
+
+networks:
+  backend:
+    name: m2_backend_net
+  frontend:
+    name: m2_frontend_net
+
+volumes:
+  pg_data:
